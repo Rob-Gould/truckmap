@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ICE Truck Tracker</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        *{margin: 0;}
+        #map { height: 100vh; }
+        .highlighted-path { stroke: #ff0000; stroke-width: 3; }
+        .truck-tooltip { font-size: 12px; background: white; padding: 5px; border-radius: 3px; box-shadow: 0 1px 5px rgba(0,0,0,0.4); }
+        .info-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 1000;
+            background: rgba(255, 255, 255, 0.3);
+            padding: 15px;
+            border-radius: 5px;
+            box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+            width: 250px;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="info-panel" class="info-panel">
+        <h3>Truck Information</h3>
+        <p><strong>Driver:</strong> <span id="driver-name"></span></p>
+        <p><strong>Phone:</strong> <span id="driver-phone"></span></p>
+        <p><strong>License Plate:</strong> <span id="truck-plate"></span></p>
+        <p><strong>Detainees:</strong> <span id="detainees"></span></p>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script>
+        // Map initialization
+        const map = L.map('map').setView([28.8924, -99.0955], 8);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+        // Configuration
+        const detentionCenter = [28.8924, -99.0955]; // South Texas Detention Complex
+        const destinations = [
+            { city: "San Antonio", coords: [29.4241, -98.4936] },
+            { city: "Austin", coords: [30.2672, -97.7431] },
+            { city: "Corpus Christi", coords: [27.8006, -97.3964] },
+            { city: "Laredo", coords: [27.5304, -99.4803] },
+            { city: "Houston", coords: [29.7604, -95.3698] }
+        ];
+
+        // Mock data generators
+        const names = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia"];
+        const randomName = () => `${names[Math.floor(Math.random() * names.length)]}`;
+        const randomDriver = () => `Driver: ${randomName()}`;
+        const randomPhone = () => `+1-${Math.floor(100 + Math.random() * 900)}-${Math.floor(100 + Math.random() * 900)}-${Math.floor(1000 + Math.random() * 9000)}`;
+        const randomPlate = () => `${String.fromCharCode(65 + Math.floor(Math.random() * 26))}${String.fromCharCode(65 + Math.floor(Math.random() * 26))} ${Math.floor(100 + Math.random() * 900)}`;
+        const randomDetainees = () => Array.from({length: Math.ceil(Math.random()*5)+1}, () => randomName());
+
+        // Function to get route from OSRM
+        async function getRoute(start, end) {
+            const response = await fetch(
+                `https://router.project-osrm.org/route/v1/driving/${start[1]},${start[0]};${end[1]},${end[0]}?overview=full&geometries=geojson`
+            );
+            const data = await response.json();
+            return data.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+        }
+
+        class Truck {
+            constructor(route, isReturning) {
+                this.route = route;
+                this.isReturning = isReturning;
+                this.progress = 0;
+                this.angle = 0;
+                this.driver = randomDriver();
+                this.phone = randomPhone();
+                this.plate = randomPlate();
+                this.detainees = randomDetainees();
+
+                this.marker = L.marker(route[0], {
+                    icon: L.divIcon({
+                        html: '<img src="trktp.png" style="width:30px; transform:rotate(0deg);"/>',
+                        className: 'truck-icon',
+                        iconSize: [20, 20]
+                    })
+                }).addTo(map);
+                this.path = L.polyline(route, { 
+                    color: "#666", 
+                    weight: 2, 
+                    opacity: 0.6,
+                    className: 'truck-path' 
+                });
+
+                this.attachEvents();
+            }
+
+            attachEvents() {
+                // Highlight path on hover
+                this.highlightedPath = null;
+
+    this.marker.on('mouseover', () => {
+        const totalPoints = this.route.length;
+        const currentIndex = Math.floor(this.progress * totalPoints);
+
+        // Extract the remaining path from the current position to the final destination
+        const remainingPath = this.route.slice(currentIndex);
+
+        // Remove previous highlight if exists
+        if (this.highlightedPath) {
+            map.removeLayer(this.highlightedPath);
+        }
+
+        // Create a new highlighted path for the remaining route
+        this.highlightedPath = L.polyline(remainingPath, {
+            color: '#ff0000',
+            weight: 3
+        }).addTo(map);
+
+        document.getElementById('info-panel').style.display = 'block';
+        document.getElementById('driver-name').textContent = this.driver;
+        document.getElementById('driver-phone').textContent = this.phone;
+        document.getElementById('truck-plate').textContent = this.plate;
+        document.getElementById('detainees').textContent = this.detainees.join(', ');
+    });
+
+                // Reset path on mouseout
+                this.marker.on('mouseout', () => {
+                    if (this.highlightedPath) {
+                        map.removeLayer(this.highlightedPath);
+                        this.highlightedPath = null;
+                    }
+                    document.getElementById('info-panel').style.display = 'none';
+                });
+            }
+
+            move() {
+                this.progress += 0.0005;
+                const totalPoints = this.route.length;
+                const currentIndex = Math.floor(this.progress * totalPoints);
+                const currentPoint = this.route[Math.min(currentIndex, totalPoints - 1)];
+                
+                if (currentIndex > 0) {
+                    const prevPoint = this.route[Math.max(0, currentIndex - 1)];
+                    const angle = Math.atan2(prevPoint[1] - currentPoint[1], prevPoint[0]- currentPoint[0] ) * (180 / Math.PI);
+                    this.marker.getElement().querySelector('img').style.transform = `rotate(${angle + 90}deg)`;
+                }
+                
+                this.marker.setLatLng(currentPoint);
+                if (this.progress >= 1) this.progress = 0;
+            }
+
+        }
+
+        // Initialize the app
+        async function initialize() {
+            const trucks = [];
+            
+            // Generate routes and trucks
+            for (let i = 0; i < 5; i++) {
+                const dest = destinations[i % destinations.length].coords;
+                
+                // Get route to destination
+                const route = await getRoute(detentionCenter, dest);
+                const truck = new Truck(route, false);
+                truck.path.addTo(map);
+                truck.marker.addTo(map);
+                trucks.push(truck);
+                
+                // Get return route
+                const returnRoute = await getRoute(dest, detentionCenter);
+                const returnTruck = new Truck(returnRoute, true);
+                returnTruck.path.addTo(map);
+                returnTruck.marker.addTo(map);
+                trucks.push(returnTruck);
+            }
+
+            // Animation loop
+            setInterval(() => trucks.forEach(truck => truck.move()), 50);
+
+
+            // Add detention center marker
+            L.marker(detentionCenter)
+                .bindPopup('South Texas Detention Complex')
+                .addTo(map);
+        }
+
+        initialize();
+    </script>
+</body>
+</html>
