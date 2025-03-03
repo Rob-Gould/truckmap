@@ -75,6 +75,9 @@
                 this.phone = randomPhone();
                 this.plate = randomPlate();
                 this.detainees = randomDetainees();
+                this.speedMph = speedMph;
+                this.pathDistance = this.calculateTotalDistance();  // Calculate total distance in meters
+                this.speedMps = this.speedMph * 0.44704; 
 
                 this.marker = L.marker(route[0], {
                     icon: L.divIcon({
@@ -91,6 +94,13 @@
                 });
 
                 this.attachEvents();
+            }
+            calculateTotalDistance() {
+                let totalDistance = 0;
+                for (let i = 0; i < this.route.length - 1; i++) {
+                    totalDistance += map.distance(this.route[i], this.route[i + 1]); // Distance in meters
+                }
+                return totalDistance;
             }
 
             attachEvents() {
@@ -132,20 +142,29 @@
                 });
             }
 
-            move() {
-                this.progress += 0.0005;
-                const totalPoints = this.route.length;
-                const currentIndex = Math.floor(this.progress * totalPoints);
-                const currentPoint = this.route[Math.min(currentIndex, totalPoints - 1)];
+            move(deltaTime) {
+                if (this.progress >= 1) return;  // Stop if the truck has reached the end
                 
+                const distanceToMove = this.speedMps * deltaTime;  // Distance to move in this frame
+                let distanceTraveled = this.progress * this.pathDistance;
+                let newDistance = distanceTraveled + distanceToMove;
+                this.progress = newDistance / this.pathDistance;
+        
+                if (this.progress > 1) this.progress = 1; // Prevent overshooting
+        
+                // Find the new position on the route
+                let totalPoints = this.route.length;
+                let currentIndex = Math.floor(this.progress * totalPoints);
+                let currentPoint = this.route[Math.min(currentIndex, totalPoints - 1)];
+        
+                // Calculate rotation
                 if (currentIndex > 0) {
-                    const prevPoint = this.route[Math.max(0, currentIndex - 1)];
-                    const angle = Math.atan2(prevPoint[1] - currentPoint[1], prevPoint[0]- currentPoint[0] ) * (180 / Math.PI);
+                    let prevPoint = this.route[Math.max(0, currentIndex - 1)];
+                    let angle = Math.atan2(prevPoint[1] - currentPoint[1], prevPoint[0] - currentPoint[0]) * (180 / Math.PI);
                     this.marker.getElement().querySelector('img').style.transform = `rotate(${angle + 90}deg)`;
                 }
-                
+        
                 this.marker.setLatLng(currentPoint);
-                if (this.progress >= 1) this.progress = 0;
             }
 
         }
@@ -160,21 +179,29 @@
                 
                 // Get route to destination
                 const route = await getRoute(detentionCenter, dest);
-                const truck = new Truck(route, false);
+                const truck = new Truck(route1, false, 50);
                 truck.path.addTo(map);
                 truck.marker.addTo(map);
                 trucks.push(truck);
                 
                 // Get return route
                 const returnRoute = await getRoute(dest, detentionCenter);
-                const returnTruck = new Truck(returnRoute, true);
+                const returnTruck = new Truck(route1, false, 50);
                 returnTruck.path.addTo(map);
                 returnTruck.marker.addTo(map);
                 trucks.push(returnTruck);
             }
 
             // Animation loop
-            setInterval(() => trucks.forEach(truck => truck.move()), 50);
+            let lastTimestamp = performance.now();
+
+                setInterval(() => {
+                    const currentTimestamp = performance.now();
+                    const deltaTime = (currentTimestamp - lastTimestamp) / 1000; // Convert ms to seconds
+                    lastTimestamp = currentTimestamp;
+                
+                    trucks.forEach(truck => truck.move(deltaTime));
+                }, 50);
 
 
             // Add detention center marker
