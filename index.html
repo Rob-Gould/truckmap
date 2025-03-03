@@ -186,7 +186,7 @@
                 
                 // Get return route
                 const returnRoute = await getRoute(dest, detentionCenter);
-                const returnTruck = new Truck(route, false, 50);
+                const returnTruck = new Truck(returnRoute, false, 50);
                 returnTruck.path.addTo(map);
                 returnTruck.marker.addTo(map);
                 trucks.push(returnTruck);
