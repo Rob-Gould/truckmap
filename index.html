@@ -81,7 +81,7 @@
 
                 this.marker = L.marker(route[0], {
                     icon: L.divIcon({
-                        html: '<img src="trktp.png" style="width:30px; transform:rotate(0deg);"/>',
+                        html: '<img src="trktp.png" style="width:50px; transform:rotate(0deg);"/>',
                         className: 'truck-icon',
                         iconSize: [20, 20]
                     })
@@ -179,14 +179,14 @@
                 
                 // Get route to destination
                 const route = await getRoute(detentionCenter, dest);
-                const truck = new Truck(route, false, 50);
+                const truck = new Truck(route, false, 350);
                 truck.path.addTo(map);
                 truck.marker.addTo(map);
                 trucks.push(truck);
                 
                 // Get return route
                 const returnRoute = await getRoute(dest, detentionCenter);
-                const returnTruck = new Truck(returnRoute, false, 50);
+                const returnTruck = new Truck(returnRoute, false, 350);
                 returnTruck.path.addTo(map);
                 returnTruck.marker.addTo(map);
                 trucks.push(returnTruck);
